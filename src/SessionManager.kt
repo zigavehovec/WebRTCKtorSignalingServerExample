@@ -5,14 +5,16 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.*
 
-object SessionManager {
+class SessionManager(
+    val roomId: String
+) {
 
     private val sessionManagerScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private val mutex = Mutex()
 
     private val clients = mutableMapOf<UUID, DefaultWebSocketServerSession>()
 
-    private var sessionState: WebRTCSessionState = WebRTCSessionState.Impossible
+    private var sessionState: WebRTCSessionState = WebRTCSessionState.Waiting
 
     fun onSessionStarted(sessionId: UUID, session: DefaultWebSocketServerSession) {
         sessionManagerScope.launch {
@@ -80,7 +82,7 @@ object SessionManager {
         sessionManagerScope.launch {
             mutex.withLock {
                 clients.remove(sessionId)
-                sessionState = WebRTCSessionState.Impossible
+                sessionState = WebRTCSessionState.Waiting
                 notifyAboutStateUpdate()
             }
         }
@@ -90,7 +92,7 @@ object SessionManager {
         Active, // Offer and Answer messages has been sent
         Creating, // Creating session, offer has been sent
         Ready, // Both clients available and ready to initiate session
-        Impossible // We have less than two clients
+        Waiting // We have less than two clients
     }
 
     enum class MessageType {

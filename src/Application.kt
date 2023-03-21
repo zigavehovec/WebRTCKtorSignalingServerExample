@@ -9,6 +9,8 @@ import java.util.*
 
 fun main(args: Array<String>): Unit = io.ktor.server.netty.EngineMain.main(args)
 
+private val roomIdToRooms = mutableMapOf<String, SessionManager>()
+
 @Suppress("unused") // Referenced in application.conf
 @kotlin.jvm.JvmOverloads
 fun Application.module(testing: Boolean = false) {
@@ -25,29 +27,42 @@ fun Application.module(testing: Boolean = false) {
         get("/") {
             call.respond("Hello from WebRTC signaling server")
         }
-        webSocket("/rtc") {
+        get("/create-room") {
+            val roomId = UUID.randomUUID().toString().take(4)
+            roomIdToRooms[roomId] = SessionManager(roomId)
+            call.respond(roomId)
+        }
+        webSocket("/rtc/{roomId}") {
+            val roomId = call.parameters["roomId"] ?: error("RoomId parameter not passed!")
             val sessionID = UUID.randomUUID()
+            val roomSession = roomIdToRooms[roomId] ?: error("Room not created yet!")
+
             try {
-                SessionManager.onSessionStarted(sessionID, this)
+                roomSession.onSessionStarted(sessionID, this)
 
                 for (frame in incoming) {
                     when (frame) {
                         is Frame.Text -> {
-                            SessionManager.onMessage(sessionID, frame.readText())
+                            roomSession.onMessage(sessionID, frame.readText())
                         }
+
                         else -> Unit
                     }
                 }
                 println("Exiting incoming loop, closing session: $sessionID")
-                SessionManager.onSessionClose(sessionID)
+                closeSession(sessionID, roomSession)
             } catch (e: ClosedReceiveChannelException) {
                 println("onClose $sessionID")
-                SessionManager.onSessionClose(sessionID)
+                closeSession(sessionID, roomSession)
             } catch (e: Throwable) {
                 println("onError $sessionID $e")
-                SessionManager.onSessionClose(sessionID)
+                closeSession(sessionID, roomSession)
             }
         }
     }
 }
 
+private fun closeSession(sessionID: UUID, roomSession: SessionManager) {
+    roomSession.onSessionClose(sessionID)
+    roomIdToRooms.remove(roomSession.roomId)
+}
